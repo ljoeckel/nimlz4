@@ -1,4 +1,3 @@
-{.deadCodeElim: on.}
 when defined(windows): 
   const 
     liblz4* = "liblz4.dll"
@@ -15,7 +14,7 @@ const
 
 type
   LZ4_streamHC_t* = object
-    table*: array[LZ4_STREAMHCSIZE_SIZET, csize]
+    table*: array[LZ4_STREAMHCSIZE_SIZET, csize_t]
 
 #*************************************
 #  Block Compression

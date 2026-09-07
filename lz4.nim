@@ -5,10 +5,9 @@
 import clz4/clz4
 import clz4/clz4frame
 import clz4/clz4hc
-import sequtils
 
 type
-  LZ4Exception* = object of Exception
+  LZ4Exception* = object of CatchableError
 
 # A little helper to do pointer arithmetics, borrowed from:
 #   https://github.com/fowlmouth/nimlibs/blob/master/fowltek/pointer_arithm.nim
@@ -159,15 +158,15 @@ proc compress_frame*(source: var string,
   let source_len = source.len
   let pprefs = addr(preferences)
   
-  let dest_max_size =  LZ4F_compressFrameBound(source_len,pprefs)
+  let dest_max_size =  LZ4F_compressFrameBound(csize_t(source_len),pprefs)
   if dest_max_size == 0:
     raise newException(LZ4Exception,"Input size to large")
  
-  var dest = cast[ptr char](alloc0(sizeof(char) * dest_max_size))
+  var dest = cast[ptr char](alloc0(sizeof(char) * int(dest_max_size)))
   let bytes_written = LZ4F_compressFrame(dstBuffer=dest,
                                          dstMaxSize=dest_max_size,
                                          srcBuffer=addr(source[0]),
-                                         srcSize=source_len,
+                                         srcSize=csize_t(source_len),
                                          preferencesPtr=pprefs)
 
   if LZ4F_isError(bytes_written) == 1:
@@ -178,8 +177,8 @@ proc compress_frame*(source: var string,
   # will be 0000, according to the LZ4 frame format.
   # This happens only if content checksum disabled
   # `LZ4F_preferences` (the default)
-  result = newString(bytes_written)
-  copyMem(addr(result[0]), dest, bytes_written)
+  result = newString(int(bytes_written))
+  copyMem(addr(result[0]), dest, int(bytes_written))
   dealloc(dest)
     
 proc uncompress_frame*(source: var string): string =
@@ -210,7 +209,7 @@ proc uncompress_frame*(source: var string): string =
     let initial_hint = LZ4F_getFrameInfo(dcontext,
                                         addr(frame),
                                         csource,
-                                        addr(src_size))
+                                        cast[ptr csize_t](addr(src_size)))
     if LZ4F_isError(initial_hint) == 1:
         let error = LZ4F_getErrorName(initial_hint)
         raise newException(LZ4Exception,$error)
@@ -242,9 +241,9 @@ proc uncompress_frame*(source: var string): string =
     while true:
       let hint_src_size_bytes = LZ4F_decompress(dcontext,
                                                 dest,
-                                                addr(dest_size),
+                                                cast[ptr csize_t](addr(dest_size)),
                                                 csource.offset(start),
-                                                addr(stop),
+                                                cast[ptr csize_t](addr(stop)),
                                                 addr(options))
 
       if LZ4F_isError(hint_src_size_bytes ) == 1:
@@ -255,7 +254,7 @@ proc uncompress_frame*(source: var string): string =
         break
 
       start += stop
-      stop = hint_src_size_bytes
+      stop = int(hint_src_size_bytes)
 
       moveMem(addr(result[resbeg]),dest,dest_size)
       resbeg += dest_size 
@@ -289,57 +288,3 @@ proc uncompress_frame*(source: var string): string =
     if LZ4F_isError(free_status) == 1:
       let error = LZ4F_getErrorName(free_status)
       raise newException(LZ4Exception,$error)
-
-
-const
-  BLOCK_BYTES = 1024
-
-type
-  page = object
-    first:ptr char
-    sec:ptr char
-
-proc `[]`(p:page,index:int): ptr char =
-  if index mod 2 == 0 :
-    result = p.first
-  else:
-    result = p.sec
-    
-proc stream_compress(source:var string): string =
-  var inbuf:page
-  var inbufindex = 0
-  
-  var lz4stream:PLZ4Stream
-  LZ4_resetStream(lz4stream)
-
-  let size:int = LZ4_compressBound(BLOCK_BYTES) 
-  var cmpbuf:ptr char
-  cmpbuf = cast[ptr char](alloc0(sizeof(char) * size))
-
-  #var source_seq = source[0..100] #
-  var source_seq = toSeq(source[0..100])
-  while true:
-    var inptr:ptr char = inbuf[inbufindex]
-    inptr = cast[ptr char](alloc0(sizeof(char) * size))
-    # get input from stream
-    var inbytes = source_seq.distribute(Positive(100),false) #source[0..100].len
-    #if inbytes == 0:
-    #  break
-        
-    var cmpbytes = LZ4_compress_fast_continue(lz4stream,
-                                              inptr,
-                                              cmpbuf,
-                                              cint(inbytes.len),
-                                              cint(sizeof(cmpbuf)),
-                                              cint(1))
-    if cmpbytes < 0 :
-      break
-
-    # write size and compressed output to out buffer
-
-    inbufindex = (inbufindex+1) mod 2 
-
-  dealloc(cmpbuf)
-  dealloc(inbuf[0])
-  dealloc(inbuf[1])
-  result = ""

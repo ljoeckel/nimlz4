@@ -1,4 +1,3 @@
-{.deadCodeElim: on.}
 when defined(windows): 
   const 
     liblz4* = "liblz4.dll"
@@ -89,7 +88,7 @@ proc LZ4_decompress_safe*(source: cstring; dest: cstring; compressedSize: cint;
 
 
 
-template LZ4_COMPRESSBOUND*(isize: expr): expr =
+template LZ4_COMPRESSBOUND*(isize: untyped): untyped =
   (if cast[cuint](isize) > cast[cuint](LZ4_MAX_INPUT_SIZE): 0 else: (isize) +
       ((isize) div 255) + 16)
 
@@ -218,9 +217,6 @@ proc LZ4_createStream*(): PLZ4Stream {.cdecl, importc: "LZ4_createStream",
     dynlib: liblz4.}
 proc LZ4_freeStream*(streamPtr: PLZ4Stream): cint {.cdecl,
     importc: "LZ4_freeStream", dynlib: liblz4.}
-
-proc newPLZ4Stream(stream:var PLZ4Stream):PLZ4Stream =
-  result = LZ4_createStream()
 
 #
 #  LZ4_loadDict
